@@ -66,6 +66,16 @@ make aws-down                                                      # tear down
 
 Cost shape (Spot nodes, single NAT, `db.t4g.micro`, no Multi-AZ) and the production deltas are in [ADR 0004](docs/adr/0004-aws-cost-shape.md).
 
+## Verify a deployed image
+
+Every image CI pushes is signed by digest with the workflow's GitHub OIDC identity. Check the digest Argo CD deploys (cosign v3):
+
+```bash
+cosign verify "ghcr.io/asterix004/agent-payments-platform@$(yq .image.digest deploy/helm/payments/values-aws.yaml)" \
+  --certificate-identity-regexp '^https://github.com/asterix004/agent-payments-platform/.github/workflows/ci.yml@refs/heads/main$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 ## API
 
 | Method | Path | Scope | Notes |
