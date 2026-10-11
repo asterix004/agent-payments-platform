@@ -118,7 +118,7 @@ jobs:
           image: ${{ env.IMAGE }}:${{ github.sha }}
           format: spdx-json
           output-file: sbom.spdx.json
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@v4.1.2
         if: github.event_name == 'push'
       - name: Sign image by digest (keyless)
         if: github.event_name == 'push'

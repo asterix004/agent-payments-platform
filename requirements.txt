@@ -1,7 +1,9 @@
 fastapi==0.143.0
 uvicorn[standard]==0.54.0
 sqlalchemy==2.1.4
-psycopg[binary]==3.3.6
+# The image builds psycopg's C extension against Debian's libpq (see Dockerfile);
+# dev and CI tests use the self-contained binary wheel from requirements-dev.txt.
+psycopg==3.3.6
 pyjwt[crypto]==2.15.1
 prometheus-client==0.26.0
 opentelemetry-sdk
