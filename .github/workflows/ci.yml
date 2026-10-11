@@ -45,9 +45,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
-      - uses: gitleaks/gitleaks-action@v3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Full-history scan with the pinned CLI. gitleaks-action scans <first pushed commit>^..HEAD,
+      # which fails on the root commit of a new branch.
+      - name: gitleaks (all commits)
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
+            ghcr.io/gitleaks/gitleaks:v8.24.3 \
+            git --redact --verbose --exit-code 1 .
 
   chart:
     runs-on: ubuntu-latest
