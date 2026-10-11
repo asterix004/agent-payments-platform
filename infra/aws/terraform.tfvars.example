@@ -1,0 +1,12 @@
+region            = "us-east-1"
+admin_cidrs       = ["203.0.113.10/32"] # your public IP: curl -s https://checkip.amazonaws.com
+github_repository = "your-github-user/agent-payments-platform"
+
+# Contents of .dev-keys/issuer.pub (python scripts/kya_dev_issuer.py keys)
+kya_public_key_pem = <<-EOT
+-----BEGIN PUBLIC KEY-----
+...
+-----END PUBLIC KEY-----
+EOT
+
+# create_github_oidc_provider = false  # if your account already has it

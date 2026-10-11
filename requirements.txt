@@ -1,0 +1,10 @@
+fastapi==0.143.0
+uvicorn[standard]==0.54.0
+sqlalchemy==2.1.4
+psycopg[binary]==3.3.6
+pyjwt[crypto]==2.15.1
+prometheus-client==0.26.0
+opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-http
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-sqlalchemy

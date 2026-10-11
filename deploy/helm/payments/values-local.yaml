@@ -1,0 +1,11 @@
+# kind cluster (make local-up). Image is built locally and loaded into kind.
+image:
+  repository: agent-payments
+  tag: dev
+replicas: 2
+autoscaling:
+  enabled: false
+networkPolicy:
+  allowFromNamespaces: [loadtest, default]
+slo:
+  runbookBaseUrl: https://github.com/asterix004/agent-payments-platform/blob/main/docs/runbooks

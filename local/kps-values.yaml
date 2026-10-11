@@ -1,0 +1,11 @@
+alertmanager: { enabled: true }
+grafana:
+  sidecar:
+    dashboards: { enabled: true, label: grafana_dashboard, labelValue: "1", searchNamespace: ALL }
+prometheus:
+  prometheusSpec:
+    serviceMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    retention: 1d
+    # Evaluate rules quickly so the chaos demo fires alerts within a few minutes.
+    evaluationInterval: 15s

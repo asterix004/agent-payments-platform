@@ -1,0 +1,79 @@
+{{- if .Values.slo.enabled }}
+{{- $errBudget := subf 1.0 .Values.slo.availabilityTarget | printf "%.6f" }}
+{{- $latBudget := subf 1.0 .Values.slo.latencyTarget | printf "%.6f" }}
+{{- $rb := .Values.slo.runbookBaseUrl }}
+# Multi-window, multi-burn-rate SLO alerts (Google SRE Workbook, ch. 5).
+# Fast burn: 14.4x budget over 1h (confirmed over 5m) -> ~2% of a 30-day budget gone. Page.
+# Slow burn:  6x budget over 6h (confirmed over 30m) -> ~5% of the budget gone. Page.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ .Release.Name }}-slo
+  labels: {{- include "payments.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: payments-slo-recording
+      interval: 30s
+      rules:
+        {{- range $w := list "5m" "30m" "1h" "6h" }}
+        - record: payments:request_error_ratio:rate{{ $w }}
+          expr: |
+            sum(rate(http_requests_total{route="/v1/payments",code=~"5.."}[{{ $w }}]))
+            /
+            clamp_min(sum(rate(http_requests_total{route="/v1/payments"}[{{ $w }}])), 1e-9)
+        - record: payments:slow_request_ratio:rate{{ $w }}
+          expr: |
+            1 - (
+              sum(rate(http_request_duration_seconds_bucket{route="/v1/payments",le="{{ $.Values.slo.latencyThresholdSeconds }}"}[{{ $w }}]))
+              /
+              clamp_min(sum(rate(http_request_duration_seconds_count{route="/v1/payments"}[{{ $w }}])), 1e-9)
+            )
+        {{- end }}
+
+    - name: payments-slo-alerts
+      rules:
+        - alert: PaymentsErrorBudgetFastBurn
+          expr: |
+            payments:request_error_ratio:rate1h > (14.4 * {{ $errBudget }})
+            and payments:request_error_ratio:rate5m > (14.4 * {{ $errBudget }})
+          for: 2m
+          labels: { severity: page, slo: availability }
+          annotations:
+            summary: "Payments 5xx rate is burning the 30-day error budget 14x too fast"
+            description: "{{`{{ $value | humanizePercentage }}`}} of /v1/payments requests failing over 1h."
+            runbook_url: {{ $rb }}/payments-error-budget-burn.md
+        - alert: PaymentsErrorBudgetSlowBurn
+          expr: |
+            payments:request_error_ratio:rate6h > (6 * {{ $errBudget }})
+            and payments:request_error_ratio:rate30m > (6 * {{ $errBudget }})
+          for: 15m
+          labels: { severity: page, slo: availability }
+          annotations:
+            summary: "Payments 5xx rate is burning the error budget 6x too fast"
+            runbook_url: {{ $rb }}/payments-error-budget-burn.md
+        - alert: PaymentsLatencyBudgetFastBurn
+          expr: |
+            payments:slow_request_ratio:rate1h > (14.4 * {{ $latBudget }})
+            and payments:slow_request_ratio:rate5m > (14.4 * {{ $latBudget }})
+          for: 2m
+          labels: { severity: page, slo: latency }
+          annotations:
+            summary: "Too many payments slower than {{ .Values.slo.latencyThresholdSeconds }}s"
+            runbook_url: {{ $rb }}/payments-latency-burn.md
+
+    - name: payments-availability
+      rules:
+        - alert: PaymentsNoReadyPods
+          expr: kube_deployment_status_replicas_available{deployment="{{ .Release.Name }}"} == 0
+          for: 2m
+          labels: { severity: page }
+          annotations:
+            summary: "No payments pod is Ready (readiness checks the database)"
+            runbook_url: {{ $rb }}/payments-no-ready-pods.md
+        - alert: PaymentsPodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total{container="api",pod=~"{{ .Release.Name }}-.*"}[15m]) > 3
+          labels: { severity: ticket }
+          annotations:
+            summary: "Payments pod {{`{{ $labels.pod }}`}} restarted more than 3 times in 15m"
+            runbook_url: {{ $rb }}/payments-crashloop.md
+{{- end }}

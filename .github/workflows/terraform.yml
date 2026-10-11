@@ -1,0 +1,48 @@
+name: terraform
+
+on:
+  pull_request:
+    paths: ["infra/aws/**", ".github/workflows/terraform.yml"]
+  push:
+    branches: [main]
+    paths: ["infra/aws/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: infra/aws }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false
+      - run: terraform validate
+
+  plan:
+    # Runs only after you deploy infra/aws once and set the repository variable
+    # AWS_PLAN_ROLE_ARN (terraform output github_plan_role_arn). Needs remote state.
+    needs: validate
+    if: vars.AWS_PLAN_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # GitHub OIDC -> short-lived AWS credentials; no stored keys
+    defaults:
+      run: { working-directory: infra/aws }
+    env:
+      TF_VAR_admin_cidrs: ${{ vars.ADMIN_CIDRS }}
+      TF_VAR_github_repository: ${{ github.repository }}
+      TF_VAR_kya_public_key_pem: ${{ vars.KYA_PUBLIC_KEY_PEM }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: us-east-1
+      - uses: hashicorp/setup-terraform@v4
+      - run: terraform init
+      - run: terraform plan -lock=false -input=false -no-color

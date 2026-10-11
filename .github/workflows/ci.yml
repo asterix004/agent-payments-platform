@@ -1,0 +1,144 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege by default; jobs that need more ask for it explicitly.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: payments
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - name: Tests, including Postgres race-condition tests
+        run: pytest -q
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://test:test@localhost:5432/payments
+
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
+      - run: helm lint deploy/helm/payments
+      - name: Render every environment and validate against Kubernetes schemas
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+          for v in values-local.yaml values-aws.yaml; do
+            helm template payments deploy/helm/payments -f deploy/helm/payments/$v \
+              | ./kubeconform -strict -summary -ignore-missing-schemas \
+                  -schema-location default \
+                  -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+          done
+
+  image:
+    needs: [test, chart, secrets-scan]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write      # push to GHCR
+      id-token: write      # keyless cosign signing via GitHub OIDC
+      security-events: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Lowercase image name
+        run: echo "IMAGE=${IMAGE,,}" >> "$GITHUB_ENV"
+      - uses: docker/login-action@v4
+        if: github.event_name == 'push'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build (and push on main)
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: ${{ github.event_name == 'push' }}
+          load: ${{ github.event_name != 'push' }}
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:main
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Vulnerability scan (fail on fixable HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: sarif
+          output: trivy.sarif
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with: { sarif_file: trivy.sarif }
+      - name: SBOM artifact (SPDX)
+        uses: anchore/sbom-action@v0.24.3
+        with:
+          image: ${{ env.IMAGE }}:${{ github.sha }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+      - uses: sigstore/cosign-installer@v4
+        if: github.event_name == 'push'
+      - name: Sign image by digest (keyless)
+        if: github.event_name == 'push'
+        run: cosign sign --yes "${IMAGE}@${{ steps.build.outputs.digest }}"
+
+  gitops-bump:
+    # Promote by commit: the digest in values-aws.yaml is what Argo CD deploys.
+    needs: image
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Pin the new digest
+        run: |
+          image="${IMAGE,,}"
+          yq -i ".image.repository = \"${image}\" | .image.digest = \"${{ needs.image.outputs.digest }}\"" \
+            deploy/helm/payments/values-aws.yaml
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "deploy: payments ${GITHUB_SHA::7} -> ${{ needs.image.outputs.digest }} [skip ci]" || echo "no change"
+          git push

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: payments
+description: Agent payments API with SLO alerting, network policy and externally managed secrets.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,61 @@
+image:
+  repository: ghcr.io/asterix004/agent-payments-platform
+  # CI writes the immutable digest here (GitOps). Never deploy a mutable tag.
+  digest: ""
+  tag: latest
+
+replicas: 2
+
+env:
+  KYA_ISSUER: https://kya.example.dev
+  KYA_AUDIENCE: payments-api
+  MAX_PAYMENT_MINOR: "1000000"
+  LOG_LEVEL: INFO
+  # Set to the OTel collector to enable tracing, e.g. http://otel-collector.observability:4318
+  OTEL_EXPORTER_OTLP_ENDPOINT: ""
+
+# Secrets are never stored in this chart.
+#   local: a plain Secret created by `make local-secrets`
+#   aws:   External Secrets Operator pulls them from AWS Secrets Manager
+secrets:
+  mode: local          # local | external
+  name: payments-secrets
+  external:
+    secretStore: aws-secrets-manager
+    # From `terraform output` in infra/aws:
+    dbMasterSecretArn: ""      # db_master_secret_arn
+    dbEndpoint: ""             # db_endpoint (host:port)
+    dbName: payments
+    kyaPublicKeySecret: agent-payments/prod/kya-public-key
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { memory: 256Mi }
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  # Namespaces allowed to call the API (ingress controller, load generator).
+  allowFromNamespaces: [ingress-nginx, loadtest]
+  monitoringNamespace: monitoring
+
+serviceMonitor:
+  enabled: true
+  interval: 15s
+
+slo:
+  enabled: true
+  # 99.9% of payment requests succeed (non-5xx) over 30 days.
+  availabilityTarget: 0.999
+  # 99% of payment requests complete in under 250 ms.
+  latencyTarget: 0.99
+  latencyThresholdSeconds: "0.25"
+  runbookBaseUrl: https://github.com/asterix004/agent-payments-platform/blob/main/docs/runbooks

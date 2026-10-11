@@ -1,0 +1,18 @@
+# App-of-apps: Argo CD watches deploy/argocd/apps and creates everything else.
+# Bootstrap once with `make argocd`; after that, Git is the only way to change the cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/asterix004/agent-payments-platform.git
+    targetRevision: main
+    path: deploy/argocd/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }

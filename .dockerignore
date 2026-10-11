@@ -1,0 +1,12 @@
+.git
+.github
+.dev-keys
+.venv
+**/__pycache__
+*.db
+infra
+deploy
+docs
+tests
+scripts
+local

@@ -1,0 +1,10 @@
+# EKS environment. CI updates image.digest on every merge to main (GitOps).
+image:
+  repository: ghcr.io/asterix004/agent-payments-platform
+  digest: ""
+
+secrets:
+  mode: external
+  external:
+    dbMasterSecretArn: "arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:rds!db-REPLACE"
+    dbEndpoint: "agent-payments-pg.REPLACE.us-east-1.rds.amazonaws.com:5432"
