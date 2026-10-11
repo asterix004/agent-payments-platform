@@ -73,6 +73,12 @@ def make_engine(url: str) -> Engine:
     kwargs = {"pool_pre_ping": True}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
+    else:
+        # Fail fast when the database is unreachable. Without these, request threads
+        # hang on TCP connect (and then on the pool) until the worker thread pool is
+        # exhausted; see docs/runbooks/payments-no-ready-pods.md.
+        kwargs["connect_args"] = {"connect_timeout": 3}
+        kwargs["pool_timeout"] = 3
     return create_engine(url, **kwargs)
 
 

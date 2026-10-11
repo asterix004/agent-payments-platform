@@ -1,5 +1,5 @@
 """Prometheus metrics. The SLOs in deploy/helm/payments/templates/prometheusrule.yaml are built on these."""
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 HTTP_REQUESTS = Counter(
     "http_requests_total",
@@ -21,4 +21,9 @@ PAYMENT_AMOUNT = Counter(
     "payments_amount_minor_total",
     "Sum of successfully moved amounts, minor units",
     ["currency"],
+)
+DB_CIRCUIT_STATE = Gauge(
+    "payments_db_circuit_state",
+    "Database circuit breaker state (1 for the current state)",
+    ["state"],  # closed | open | half_open
 )

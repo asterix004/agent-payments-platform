@@ -48,10 +48,12 @@ spec:
           readinessProbe:
             httpGet: { path: /readyz, port: http }
             periodSeconds: 5
+            timeoutSeconds: 4    # > DB connect_timeout (3s) so a down DB reads as a 503, not a probe timeout
             failureThreshold: 3
           livenessProbe:
             httpGet: { path: /healthz, port: http }
             periodSeconds: 10
+            timeoutSeconds: 2
             failureThreshold: 3
           resources: {{- toYaml .Values.resources | nindent 12 }}
           securityContext:

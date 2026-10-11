@@ -11,6 +11,9 @@ env:
   KYA_AUDIENCE: payments-api
   MAX_PAYMENT_MINOR: "1000000"
   LOG_LEVEL: INFO
+  # Database circuit breaker: open after N consecutive DB failures, retry after S seconds.
+  DB_BREAKER_FAILURES: "5"
+  DB_BREAKER_RESET_SECONDS: "5"
   # Set to the OTel collector to enable tracing, e.g. http://otel-collector.observability:4318
   OTEL_EXPORTER_OTLP_ENDPOINT: ""
 

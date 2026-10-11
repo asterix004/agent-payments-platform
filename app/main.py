@@ -1,5 +1,6 @@
 """Agent payments API: accounts, sandbox deposits and idempotent payments for AI agents."""
 import logging
+import math
 import os
 import time
 from contextlib import asynccontextmanager
@@ -7,10 +8,12 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from sqlalchemy import exc as sa_exc
 from sqlalchemy import text
 
 from . import ledger
 from .auth import Agent, current_agent
+from .breaker import CircuitBreaker, CircuitOpen
 from .config import get_settings
 from .db import init_db, make_engine
 from .metrics import HTTP_LATENCY, HTTP_REQUESTS, PAYMENT_AMOUNT, PAYMENTS
@@ -51,6 +54,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     app = FastAPI(title="Agent Payments API", version="0.1.0", lifespan=lifespan)
     app.state.engine = engine
+    breaker = CircuitBreaker(settings.db_breaker_failures, settings.db_breaker_reset_seconds)
+    app.state.breaker = breaker
     _setup_tracing(app, engine)
 
     @app.middleware("http")
@@ -68,14 +73,31 @@ def create_app(database_url: str | None = None) -> FastAPI:
     async def ledger_error(_: Request, exc: ledger.LedgerError):
         return JSONResponse(status_code=exc.status_code, content={"error": type(exc).__name__, "detail": str(exc)})
 
+    # Database unreachable or pool exhausted: a retryable 503, counted in the error-budget
+    # metrics. Unhandled exceptions bypass the metrics middleware and would hide the outage.
+    @app.exception_handler(sa_exc.OperationalError)
+    @app.exception_handler(sa_exc.TimeoutError)
+    async def database_unavailable(_: Request, exc: Exception):
+        log.error("database unavailable: %s", exc)
+        return JSONResponse(status_code=503, content={"error": "DatabaseUnavailable", "detail": "retry later"},
+                            headers={"Retry-After": "2"})
+
+    @app.exception_handler(CircuitOpen)
+    async def circuit_open(_: Request, exc: CircuitOpen):
+        return JSONResponse(status_code=503, content={"error": "DatabaseUnavailable", "detail": "retry later"},
+                            headers={"Retry-After": str(math.ceil(exc.retry_after))})
+
+    # Liveness and metrics are async so they run on the event loop, not the worker thread
+    # pool that database calls can exhaust. A database outage must make pods unready,
+    # never get them restarted.
     @app.get("/healthz", include_in_schema=False)
-    def healthz():
+    async def healthz():
         return {"status": "ok"}
 
     @app.get("/readyz", include_in_schema=False)
     def readyz():
         try:
-            with engine.connect() as conn:
+            with breaker.guard(probe=True), engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
         except Exception as exc:  # noqa: BLE001 - any DB failure means not ready
             log.warning("readiness check failed: %s", exc)
@@ -83,18 +105,18 @@ def create_app(database_url: str | None = None) -> FastAPI:
         return {"status": "ready"}
 
     @app.get("/metrics", include_in_schema=False)
-    def metrics():
+    async def metrics():
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     @app.post("/v1/accounts", response_model=Account, status_code=201)
     def create_account(body: AccountCreate, agent: Agent = Depends(current_agent)):
         agent.require("accounts:write")
-        with engine.begin() as conn:
+        with breaker.guard(), engine.begin() as conn:
             return ledger.create_account(conn, agent.agent_id, body.currency)
 
     @app.get("/v1/accounts/{account_id}", response_model=Account)
     def get_account(account_id: str, agent: Agent = Depends(current_agent)):
-        with engine.connect() as conn:
+        with breaker.guard(), engine.connect() as conn:
             acct = ledger.get_account(conn, account_id)
             if acct.owner_agent_id != agent.agent_id:
                 raise ledger.Forbidden("not your account")
@@ -106,7 +128,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     @app.post("/v1/deposits", status_code=201)
     def create_deposit(body: DepositCreate, agent: Agent = Depends(current_agent)):
         agent.require("treasury:deposit")
-        with engine.begin() as conn:
+        with breaker.guard(), engine.begin() as conn:
             return ledger.deposit(conn, agent_id=agent.agent_id, account_id=body.account_id, amount=body.amount_minor)
 
     @app.post("/v1/payments", response_model=Payment, status_code=201)
@@ -120,7 +142,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         payload = body.model_dump()
         for attempt in range(2):
             try:
-                with engine.begin() as conn:
+                with breaker.guard(), engine.begin() as conn:
                     status, result, replayed = ledger.pay(
                         conn, agent_id=agent.agent_id, agent_max_txn=agent.max_txn_minor,
                         hard_max=settings.max_payment_minor, idem_key=idempotency_key, body=payload,

@@ -21,6 +21,10 @@ class Settings:
     kya_audience: str = field(default_factory=lambda: os.environ.get("KYA_AUDIENCE", "payments-api"))
     # Hard ceiling regardless of what a token allows: 10,000.00 in minor units.
     max_payment_minor: int = field(default_factory=lambda: int(os.environ.get("MAX_PAYMENT_MINOR", "1000000")))
+    # Database circuit breaker (app/breaker.py).
+    db_breaker_failures: int = field(default_factory=lambda: int(os.environ.get("DB_BREAKER_FAILURES", "5")))
+    db_breaker_reset_seconds: float = field(
+        default_factory=lambda: float(os.environ.get("DB_BREAKER_RESET_SECONDS", "5")))
     service_name: str = field(default_factory=lambda: os.environ.get("OTEL_SERVICE_NAME", "payments-api"))
 
 

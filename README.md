@@ -41,7 +41,7 @@ flowchart LR
 Prerequisites: Docker, `kind`, `kubectl`, `helm`, Python 3.12.
 
 ```bash
-make venv && make test          # 11 API tests on SQLite
+make venv && make test          # 19 API tests on SQLite
 make local-up                   # kind + Prometheus/Grafana + Postgres + payments (2 replicas)
 make port-forward               # terminal 1: http://localhost:8080/docs
 make loadgen RPS=20             # terminal 2: steady agent traffic

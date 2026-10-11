@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Chaos drill: take the local database away, watch readiness fail and the
-# PaymentsNoReadyPods alert fire, then restore it and watch recovery.
+# PaymentsNoReadyPods and error-budget alerts fire, then restore it and watch the
+# API recover without a restart. Pods must go unready, never get liveness-killed.
 # Run with `make loadgen` in another terminal and Grafana open.
 set -euo pipefail
 NS=payments
@@ -28,8 +29,17 @@ done
 echo "$(date -u +%T) restoring postgres"
 kubectl -n "$NS" scale deployment/postgres --replicas=1
 kubectl -n "$NS" rollout status deployment/postgres --timeout=120s
-# Local Postgres uses emptyDir, so the restored DB is empty; restart the app to recreate the schema.
-kubectl -n "$NS" rollout restart deployment/payments
-kubectl -n "$NS" rollout status deployment/payments --timeout=180s
+# No restart: the API pods were never killed, they only went unready. Recovery is
+# readiness passing again on its own once the database is back.
+kubectl -n "$NS" wait --for=condition=Available deployment/payments --timeout=120s
+kubectl -n "$NS" get pods -l app.kubernetes.io/name=payments
 sleep 60
 echo "$(date -u +%T) recovered | alerts: $(alerts)"
+
+restarts=$(kubectl -n "$NS" get pods -l app.kubernetes.io/name=payments \
+  -o jsonpath='{range .items[*]}{.status.containerStatuses[0].restartCount}{"\n"}{end}' | awk '{s+=$1} END {print s+0}')
+if (( restarts == 0 )); then
+  echo "PASS: database outage made the API unready, not restarted (0 container restarts)"
+else
+  echo "FAIL: payments containers restarted ${restarts} time(s) during a database outage; check liveness"; exit 1
+fi

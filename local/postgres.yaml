@@ -1,4 +1,13 @@
 # Local-only Postgres for kind. On AWS this is RDS (infra/aws/main.tf).
+# Data lives on a PVC (kind's local-path provisioner) so it survives the chaos drill,
+# as RDS data would survive a failover.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: postgres-data, namespace: payments }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 1Gi } }
+---
 apiVersion: v1
 kind: Service
 metadata: { name: postgres, namespace: payments }
@@ -11,6 +20,7 @@ kind: Deployment
 metadata: { name: postgres, namespace: payments, labels: { app: postgres } }
 spec:
   replicas: 1
+  strategy: { type: Recreate }   # RWO volume: never run two Postgres pods on it
   selector: { matchLabels: { app: postgres } }
   template:
     metadata: { labels: { app: postgres } }
@@ -21,6 +31,7 @@ spec:
           env:
             - { name: POSTGRES_DB, value: payments }
             - { name: POSTGRES_USER, value: payments }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
             - name: POSTGRES_PASSWORD
               valueFrom: { secretKeyRef: { name: postgres-local, key: password } }
           ports: [{ containerPort: 5432 }]
@@ -28,4 +39,4 @@ spec:
             exec: { command: ["pg_isready", "-U", "payments"] }
             periodSeconds: 5
           volumeMounts: [{ name: data, mountPath: /var/lib/postgresql/data }]
-      volumes: [{ name: data, emptyDir: {} }]
+      volumes: [{ name: data, persistentVolumeClaim: { claimName: postgres-data } }]
