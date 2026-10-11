@@ -114,6 +114,8 @@ jobs:
           exit-code: "1"
           format: sarif
           output: trivy.sarif
+          # Without this, SARIF output ignores `severity` and the gate fails on any fixable finding.
+          limit-severities-for-sarif: true
       - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with: { sarif_file: trivy.sarif }
