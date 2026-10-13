@@ -1,7 +1,7 @@
 # EKS environment. CI updates image.digest on every merge to main (GitOps).
 image:
   repository: ghcr.io/asterix004/agent-payments-platform
-  digest: "sha256:d45ba545ee12536e3ea325e91fbdba613c692af1218edab5ee7de76ead6b57e2"
+  digest: "sha256:5510cf557d2b41fb827105fa81fffdd5e2d68bc4d1211d5957889ba6f2e707da"
 secrets:
   mode: external
   external:
