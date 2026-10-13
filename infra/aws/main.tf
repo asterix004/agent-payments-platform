@@ -50,6 +50,10 @@ module "eks" {
   name               = var.name
   kubernetes_version = var.kubernetes_version
 
+  # STANDARD: a cluster left on an old version is auto-upgraded instead of moving
+  # to extended support, which bills the control plane at ~6x ($0.60/h vs $0.10/h).
+  upgrade_policy = { support_type = "STANDARD" }
+
   endpoint_public_access       = true
   endpoint_public_access_cidrs = var.admin_cidrs
 

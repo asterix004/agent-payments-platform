@@ -66,6 +66,45 @@ make aws-down                                                      # tear down
 
 Cost shape (Spot nodes, single NAT, `db.t4g.micro`, no Multi-AZ) and the production deltas are in [ADR 0004](docs/adr/0004-aws-cost-shape.md).
 
+### Deployed and verified on AWS (2026-10-13)
+
+The stack above was applied to a real account in **us-east-2**, verified, and destroyed the same session.
+
+| Step | Result |
+|---|---|
+| `make aws-up` | 73 resources in ~18 min (EKS cluster 12m40s, RDS 8m, NAT 2m, 2 Spot `t3.large` nodes 2m) |
+| `make argocd` | All 5 Argo CD apps **Synced/Healthy** from `main`: `root`, `external-secrets`, `kube-prometheus-stack`, `cluster-config`, `payments` |
+| Secrets | External Secrets pulled the RDS master credentials from AWS Secrets Manager (RDS-managed secret, never in Git) |
+| Smoke test | `/healthz` and `/readyz` (includes the DB check) **200**. `scripts/loadgen.py` for 30 s: **150/150 payments `201 Created`**, 0 errors |
+| GitOps | The commit that pointed `values-aws.yaml` at RDS triggered CI, which signed a new image and committed its digest; Argo CD rolled it out with no manual step |
+| `make aws-down` | **74 resources destroyed**. No EKS, EC2, EBS, RDS, NAT, EIP, load balancer, VPC or secret left. ~42 min of uptime, about $0.20 |
+
+![Argo CD: all five applications Healthy and Synced](docs/images/aws-argocd-apps.png)
+
+![EKS cluster agent-payments: Active, Kubernetes 1.36](docs/images/aws-eks-overview.png)
+
+![EKS cluster resources and networking; the public API endpoint is restricted to one admin /32](docs/images/aws-eks-resources.png)
+
+![EKS workloads: the two payments pods running](docs/images/aws-eks-workloads.png)
+
+![VPC resource map: public, private and database subnets across two AZs, one NAT gateway](docs/images/aws-vpc-resource-map.png)
+
+![RDS agent-payments-pg: PostgreSQL 17 on db.t4g.micro, no internet access](docs/images/aws-rds.png)
+
+![Secrets Manager: the RDS-managed master secret (metadata only)](docs/images/aws-secrets-manager.png)
+
+**Spend guardrail.** A $20/month AWS Budget alerts at 50/80/100% actual and 100% forecast. At 100% actual, a budget action automatically attaches a deny-new-workloads service control policy to the account (EC2, NAT, load balancers, RDS and more), so a forgotten environment cannot keep growing. It does not stop what is already running; `make aws-down` does.
+
+![AWS Budget org-monthly-cap: four alerts, the 100% alert holds the automatic SCP action in Standby](docs/images/aws-budget-action.png)
+
+**What the first real deploy taught us** (all fixed in `infra/aws`):
+
+- **New AWS accounts can arrive locked down.** Accounts from AWS's 2026 sign-up are "projects" behind AWS-managed service control policies that denied EKS, EC2, RDS and Secrets Manager outright, even read-only calls. Activating the account's advanced features made it a normal AWS Organization. That step is one-way and deletes the built-in spend limit, which is why the budget action above exists.
+- **Region is set by policy, not preference.** The remaining AWS-managed SCP allows only global services in us-east-1, so workloads run in **us-east-2** (Terraform default, `ClusterSecretStore`, and the CI plan job).
+- **EKS has no metrics API by default.** The payments HPA scales on CPU, so without the `metrics-server` add-on it could not read metrics and Argo CD reported the app Degraded.
+- **Pin the EKS version.** With a null version, `terraform-aws-modules/eks` v21 resolves it at apply time and `plan` fails with "Invalid count argument". The upgrade policy is pinned to `STANDARD` too: a cluster left on an old version otherwise moves to extended support at ~6× the control-plane price.
+- **Declare static RDS parameters as `pending-reboot`.** AWS stores `rds.force_ssl` that way; without saying so, every plan shows a phantom in-place change.
+
 ## Verify a deployed image
 
 Every image CI pushes is signed by digest with the workflow's GitHub OIDC identity. Check the digest Argo CD deploys (cosign v3):
