@@ -5,5 +5,5 @@ image:
 secrets:
   mode: external
   external:
-    dbMasterSecretArn: "arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:rds!db-REPLACE"
-    dbEndpoint: "agent-payments-pg.REPLACE.us-east-1.rds.amazonaws.com:5432"
+    dbMasterSecretArn: "arn:aws:secretsmanager:us-east-2:093736401430:secret:rds!db-f5aeb4bb-cddf-43df-8771-16d34d3e8c1c-nDYsfd"
+    dbEndpoint: "agent-payments-pg.clgwyc0qszvg.us-east-2.rds.amazonaws.com:5432"

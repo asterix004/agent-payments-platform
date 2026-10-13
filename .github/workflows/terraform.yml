@@ -42,7 +42,7 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: us-east-2
       - uses: hashicorp/setup-terraform@v4
       - run: terraform init
       - run: terraform plan -lock=false -input=false -no-color

@@ -1,6 +1,8 @@
 variable "region" {
+  # us-east-2: the project account's AWS-managed region SCP only allows global
+  # services in us-east-1, so EKS, RDS and Secrets Manager must run here.
   type    = string
-  default = "us-east-1"
+  default = "us-east-2"
 }
 
 variable "name" {
@@ -10,9 +12,12 @@ variable "name" {
 }
 
 variable "kubernetes_version" {
-  description = "EKS version. Null lets EKS pick its current default."
+  # Pinned: with null, terraform-aws-modules/eks v21 looks the version up at apply
+  # time and `plan` fails with "Invalid count argument" in the node group module.
+  # Check the current default with: aws eks describe-cluster-versions --default-only
+  description = "EKS version"
   type        = string
-  default     = null
+  default     = "1.36"
 }
 
 variable "admin_cidrs" {
