@@ -60,6 +60,8 @@ module "eks" {
     kube-proxy             = {}
     eks-pod-identity-agent = { before_compute = true }
     vpc-cni                = { before_compute = true }
+    # The payments HPA scales on CPU; EKS ships no metrics API without this.
+    metrics-server = {}
   }
 
   vpc_id     = module.vpc.vpc_id
@@ -125,7 +127,9 @@ module "db" {
   deletion_protection     = false
 
   parameters = [
-    { name = "rds.force_ssl", value = "1" }
+    # Static parameter: AWS records it as pending-reboot, so say so here or every
+    # plan shows a phantom in-place change. New instances start with it applied.
+    { name = "rds.force_ssl", value = "1", apply_method = "pending-reboot" }
   ]
 }
 
