@@ -13,6 +13,6 @@
 | EKS upgrade policy | `STANDARD` | `STANDARD`, with planned upgrades | Extended support bills the control plane at ~6× ($0.60/h vs $0.10/h) |
 | Spend control | $20/month AWS Budget; at 100% actual a budget action attaches a deny-new-workloads SCP | Per-account budgets, anomaly detection, tagging policy | Caps a forgotten environment; `make aws-down` still has to stop what runs |
 
-The environment is created and destroyed per session (`make aws-up` / `make aws-down`); the hourly cost is dominated by the EKS control plane, the NAT gateway and the nodes.
+The environment is created and destroyed per session (`make aws-up` / `make aws-down`); the hourly cost is dominated by the EKS control plane, the NAT gateway and the nodes. For a short session, NAT data processing of image pulls can outweigh all of them.
 
-Measured on 2026-10-13 (us-east-2): `make aws-up` took ~18 minutes, the environment ran ~42 minutes, and `make aws-down` destroyed all 74 resources. Expected cost ~$0.25–0.30/hour, about $0.20 for the session.
+Measured on 2026-10-13 (us-east-2): `make aws-up` took ~18 minutes, the environment ran ~42 minutes, and `make aws-down` destroyed all 74 resources. Billed cost for the session (Cost Explorer, 2026-10-13): **$0.22**. NAT gateway $0.144 ($0.099 processing 2.21 GB, $0.045 hourly), EKS $0.042, EC2 Spot $0.016, regional data transfer $0.008, RDS $0.008, public IPv4 $0.003, Secrets Manager $0.001.

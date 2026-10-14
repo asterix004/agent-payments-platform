@@ -77,7 +77,7 @@ The stack above was applied to a real account in **us-east-2**, verified, and de
 | Secrets | External Secrets pulled the RDS master credentials from AWS Secrets Manager (RDS-managed secret, never in Git) |
 | Smoke test | `/healthz` and `/readyz` (includes the DB check) **200**. `scripts/loadgen.py` for 30 s: **150/150 payments `201 Created`**, 0 errors |
 | GitOps | The commit that pointed `values-aws.yaml` at RDS triggered CI, which signed a new image and committed its digest; Argo CD rolled it out with no manual step |
-| `make aws-down` | **74 resources destroyed**. No EKS, EC2, EBS, RDS, NAT, EIP, load balancer, VPC or secret left. ~42 min of uptime, about $0.20 |
+| `make aws-down` | **74 resources destroyed**. No EKS, EC2, EBS, RDS, NAT, EIP, load balancer, VPC or secret left. ~42 min of uptime, **$0.22** on the bill |
 
 ![Argo CD: all five applications Healthy and Synced](docs/images/aws-argocd-apps.png)
 
@@ -103,6 +103,7 @@ The stack above was applied to a real account in **us-east-2**, verified, and de
 - **Region is set by policy, not preference.** The remaining AWS-managed SCP allows only global services in us-east-1, so workloads run in **us-east-2** (Terraform default, `ClusterSecretStore`, and the CI plan job).
 - **EKS has no metrics API by default.** The payments HPA scales on CPU, so without the `metrics-server` add-on it could not read metrics and Argo CD reported the app Degraded.
 - **Pin the EKS version.** With a null version, `terraform-aws-modules/eks` v21 resolves it at apply time and `plan` fails with "Invalid count argument". The upgrade policy is pinned to `STANDARD` too: a cluster left on an old version otherwise moves to extended support at ~6× the control-plane price.
+- **NAT data processing was the biggest line on the bill.** The session cost $0.22: NAT gateway $0.14 (of which $0.10 was processing 2.2 GB of image pulls), EKS $0.04, Spot nodes $0.02, RDS $0.01. The images come from GHCR, Quay and Docker Hub, so an ECR VPC endpoint would not help; a pull-through cache in ECR would, for clusters that are recreated often.
 - **Declare static RDS parameters as `pending-reboot`.** AWS stores `rds.force_ssl` that way; without saying so, every plan shows a phantom in-place change.
 
 ## Verify a deployed image
